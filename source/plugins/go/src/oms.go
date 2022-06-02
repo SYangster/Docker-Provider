@@ -37,6 +37,9 @@ const ContainerLogDataType = "CONTAINER_LOG_BLOB"
 //DataType for Container Log v2
 const ContainerLogV2DataType = "CONTAINERINSIGHTS_CONTAINERLOGV2"
 
+// DataType for Syslog
+const SyslogDataType = "LINUX_SYSLOGS_BLOB"
+
 // DataType for Insights metric
 const InsightsMetricsDataType = "INSIGHTS_METRICS_BLOB"
 
@@ -174,6 +177,8 @@ var (
 	MdsdKubeMonAgentEventsTagName string
 	// InsightsMetrics tag name for oneagent route
 	MdsdInsightsMetricsTagName string
+	// Syslog tag name for oneagent route (new)
+	MdsdSyslogTagName string
 	// flag to check if its Windows OS
 	IsWindows bool
 	// container type
@@ -232,6 +237,24 @@ var (
 	agentName            = "ContainerAgent"
 	userAgent            = ""
 )
+
+// SyslogLA == Syslog table in LA
+type SyslogLA struct {
+	Computer		string	`json:"Computer"` //Computer that the event was collected from.
+	EventTime		string  `json:"EventTime"` //datetime	Date and time that the event was generated.
+	Facility		string	`json:"Facility"` //The part of the system that generated the message.
+	HostIP			string	`json:"HostIP"` //IP address of the system sending the message.
+	HostName		string	`json:"HostName"` //Name of the system sending the message.
+	ProcessID		int	    `json:"ProcessID"` //ID of the process that generated the message.
+	ProcessName		string	`json:"ProcessName"` //Name of the process that generated the message.
+	//_ResourceId		string	A unique identifier for the resource that the record is associated with
+	SeverityLevel	string	`json:"SeverityLevel"` //Severity level of the event.
+	SourceSystem	string	`json:"SourceSystem"` //Type of agent the data was collected from. For syslog the value is typically Linux.
+	//_SubscriptionId	string	A unique identifier for the subscription that the record is associated with
+	SyslogMessage	string	`json:"SyslogMessage"` //Text of the message.
+	TimeGenerated	string  `json:"TimeGenerated"` //datetime	Date and time the record was created.
+	//Type				string	The name of the table
+}
 
 // DataItemLAv1 == ContainerLog table in LA
 type DataItemLAv1 struct {
@@ -364,6 +387,8 @@ const (
 	ContainerLogV2 DataType = iota
 	KubeMonAgentEvents
 	InsightsMetrics
+	//adding syslogs datatype for enum?
+	Syslog
 )
 
 func createLogger() *log.Logger {
@@ -1074,6 +1099,135 @@ func UpdateNumTelegrafMetricsSentTelemetry(numMetricsSent int, numSendErrors int
 	TelegrafMetricsSend429ErrorCount += float64(numSend429Errors)
 	WinTelegrafMetricsCountWithTagsSize64KBorMore += float64(numWinMetricswith64KBorMoreSize)
 	ContainerLogTelemetryMutex.Unlock()
+}
+
+// send syslogs to LA as 'Syslog' fixed type (Sean)
+func PostSyslogsToLA(syslogRecords []map[interface{}]interface{}) int {
+	var syslogsLA []*SyslogLA
+
+	//log("syslogRecords", syslogRecords)
+
+	if (syslogRecords == nil) || !(len(syslogRecords) > 0) {
+		//log("PostSyslogsToLA::Error:syslogRecords is empty")
+		Log("PostTelegrafMetricsToLA::Error:no timeseries to derive")
+		return output.FLB_OK
+	}
+
+	for _, record := range syslogRecords {
+		//translatedMetrics, err := translateTelegrafMetrics(record)
+
+		logEntry := ToString(record["log"])
+		logEntryTimeStamp := ToString(record["time"])
+
+		syslogLA := SyslogLA{
+			Computer:       Computer,
+			EventTime:      "event_time_placeholder",
+			Facility:	    "facility_placeholder",
+			HostIP:			"host_ip_placeholder",
+			HostName:		"host_name_placeholder",
+			ProcessID:		1234,
+			ProcessName:	"process_name_placeholder",
+			SeverityLevel:	"severity_level_placeholder",
+			SourceSystem:	"source_system_placeholder",
+			SyslogMessage:  logEntry,
+			TimeGenerated:  logEntryTimeStamp,
+		}
+
+		syslogsLA = append(syslogsLA, &syslogLA)
+
+		// if err != nil {
+		// 	message := fmt.Sprintf("PostTelegrafMetricsToLA::Error:when translating telegraf metric to log analytics metric %q", err)
+		// 	Log(message)
+		// 	//SendException(message) //This will be too noisy
+		// }
+		// laMetrics = append(laMetrics, translatedMetrics...)
+	}
+
+	// if (laMetrics == nil) || !(len(laMetrics) > 0) {
+	// 	Log("PostTelegrafMetricsToLA::Info:no metrics derived from timeseries data")
+	// 	return output.FLB_OK
+	// } else {
+	// 	message := fmt.Sprintf("PostTelegrafMetricsToLA::Info:derived %v metrics from %v timeseries", len(laMetrics), len(syslogRecords))
+	// 	Log(message)
+	// }
+
+	//if IsWindows == false { //for linux, mdsd route
+	var msgPackEntries []MsgPackEntry
+	var i int
+	start := time.Now()
+	var elapsed time.Duration
+
+	for i = 0; i < len(syslogsLA); i++ {
+		var interfaceMap map[string]interface{}
+		stringMap := make(map[string]string)
+		jsonBytes, err := json.Marshal(*syslogsLA[i])
+		if err != nil {
+			message := fmt.Sprintf("PostTelegrafMetricsToLA::Error:when marshalling json %q", err)
+			Log(message)
+			SendException(message)
+			return output.FLB_OK
+		} else {
+			if err := json.Unmarshal(jsonBytes, &interfaceMap); err != nil {
+				message := fmt.Sprintf("Error while UnMarshalling json bytes to interfaceMap: %s", err.Error())
+				Log(message)
+				SendException(message)
+				return output.FLB_OK
+			} else {
+				for key, value := range interfaceMap {
+					strKey := fmt.Sprintf("%v", key)
+					strValue := fmt.Sprintf("%v", value)
+					stringMap[strKey] = strValue
+				}
+				msgPackEntry := MsgPackEntry{
+					Record: stringMap,
+				}
+				msgPackEntries = append(msgPackEntries, msgPackEntry)
+			}
+		}
+	}
+	if len(msgPackEntries) > 0 {
+		if IsAADMSIAuthMode == true && (strings.HasPrefix(MdsdSyslogTagName, MdsdOutputStreamIdTagPrefix) == false) {
+			Log("Info::mdsd::obtaining output stream id for InsightsMetricsDataType since Log Analytics AAD MSI Auth Enabled")
+			MdsdSyslogTagName = extension.GetInstance(FLBLogger, ContainerType).GetOutputStreamId(SyslogDataType)
+		}
+		msgpBytes := convertMsgPackEntriesToMsgpBytes(MdsdSyslogTagName, msgPackEntries)
+		if MdsdMsgpUnixSocketClient == nil {
+			Log("Error::mdsd::mdsd connection does not exist. re-connecting ...")
+			CreateMDSDClient(Syslog, ContainerType)
+			if MdsdMsgpUnixSocketClient == nil {
+				Log("Error::mdsd::Unable to create mdsd client for insights metrics. Please check error log.")
+				// ContainerLogTelemetryMutex.Lock()
+				// defer ContainerLogTelemetryMutex.Unlock()
+				// InsightsMetricsMDSDClientCreateErrors += 1
+				return output.FLB_RETRY
+			}
+		}
+
+		deadline := 10 * time.Second
+		MdsdMsgpUnixSocketClient.SetWriteDeadline(time.Now().Add(deadline)) //this is based of clock time, so cannot reuse
+		bts, er := MdsdMsgpUnixSocketClient.Write(msgpBytes)
+
+		elapsed = time.Since(start)
+
+		if er != nil {
+			Log("Error::mdsd::Failed to write to mdsd %d records after %s. Will retry ... error : %s", len(msgPackEntries), elapsed, er.Error())
+			//UpdateNumTelegrafMetricsSentTelemetry(0, 1, 0, 0)
+			if MdsdMsgpUnixSocketClient != nil {
+				MdsdMsgpUnixSocketClient.Close()
+				MdsdMsgpUnixSocketClient = nil
+			}
+
+			// ContainerLogTelemetryMutex.Lock()
+			// defer ContainerLogTelemetryMutex.Unlock()
+			// InsightsMetricsMDSDClientCreateErrors += 1
+			return output.FLB_RETRY
+		} else {
+			// numTelegrafMetricsRecords := len(msgPackEntries)
+			// UpdateNumTelegrafMetricsSentTelemetry(numTelegrafMetricsRecords, 0, 0, 0)
+			Log("Success::mdsd::Successfully flushed %d telegraf metrics records that was %d bytes to mdsd in %s ", 5, bts, elapsed)
+		}
+	}
+	return output.FLB_OK
 }
 
 // PostDataHelper sends data to the ODS endpoint or oneagent or ADX
