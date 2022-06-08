@@ -183,13 +183,11 @@ func CreateMDSDClient(dataType DataType, containerType string) {
 			mdsdfluentSocket, 10*time.Second)
 		if err != nil {
 			Log("Error::mdsd::Unable to open MDSD msgp socket connection for Syslog %s", err.Error())
-			//log.Fatalf("Unable to open MDSD msgp socket connection %s", err.Error())
 		} else {
 			Log("Successfully created MDSD msgp socket connection for Syslog: %s", mdsdfluentSocket)
 			MdsdSyslogMsgpUnixSocketClient = conn
 		}
 	}
-	//TODO SEAN add case for Syslog, add to mdsd.xml (schema)
 }
 
 //ADX client to write to ADX

@@ -21,6 +21,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/tinylib/msgp/msgp"
 
+	//"github.com/influxdata/go-syslog"
+
 	"Docker-Provider/source/plugins/go/src/extension"
 
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
@@ -245,34 +247,18 @@ type SyslogLA struct {
 	Computer		string	`json:"Computer"` //Computer that the event was collected from.
 	EventTime		string  `json:"EventTime"` //datetime	Date and time that the event was generated.
 	Facility		string	`json:"Facility"` //The part of the system that generated the message.
-	HostIP			string	`json:"HostIP"` //IP address of the system sending the message.
-	HostName		string	`json:"HostName"` //Name of the system sending the message.
-	ProcessID		string	`json:"ProcessID"` //ID of the process that generated the message. //int
-	ProcessName		string	`json:"ProcessName"` //Name of the process that generated the message.
+	HostIP			string	`json:"HostIP"` //IP address of the system sending the message. HostIP
+	Host			string	`json:"Host"` //Name of the system sending the message. HostName HostName
+	ProcessId		string	`json:"ProcessId"` //ID of the process that generated the message. //int
+	ident			string	`json:"ident"` //Name of the process that generated the message.
 	//_ResourceId		string	A unique identifier for the resource that the record is associated with
-	SeverityLevel	string	`json:"SeverityLevel"` //Severity level of the event.
-	SourceSystem	string	`json:"SourceSystem"` //Type of agent the data was collected from. For syslog the value is typically Linux.
+	Severity		string	`json:"Severity"` //Severity level of the event. //SeverityLevel
+	//SourceSystem	string	`json:"SourceSystem"` //Type of agent the data was collected from. For syslog the value is typically Linux.
 	//_SubscriptionId	string	A unique identifier for the subscription that the record is associated with
-	SyslogMessage	string	`json:"SyslogMessage"` //Text of the message.
-	TimeGenerated	string  `json:"TimeGenerated"` //datetime	Date and time the record was created.
+	Message			string	`json:"Message"` //Text of the message. //SyslogMessage
+	//TimeGenerated	string  `json:"TimeGenerated"` //datetime	Date and time the record was created.
 	//Type				string	The name of the table
 }
-
-type SyslogLA2 struct {
-	Facility		string	`json:"Facility"`
-	Severity		string	`json:"Severity"`
-	EventTime		string  `json:"EventTime"`
-	SendingHost		string	`json:"SendingHost"`
-	Msg				string	`json:"Msg"`
-	SyslogTag   	string  `json:"SyslogTag"`
-}
-
-// 		 <Column name="Facility" type="str" mdstype="mt:wstr" />
-//       <Column name="Severity" type="str" mdstype="mt:int32" />
-//       <Column name="EventTime" type="str-rfc3339" mdstype="mt:utc" />
-//       <Column name="SendingHost" type="str" mdstype="mt:wstr" />
-//       <Column name="Msg" type="str" mdstype="mt:wstr" />
-//       <Column name="SyslogTag" type="str" mdstype="mt:wstr" />
 
 // DataItemLAv1 == ContainerLog table in LA
 type DataItemLAv1 struct {
@@ -405,7 +391,6 @@ const (
 	ContainerLogV2 DataType = iota
 	KubeMonAgentEvents
 	InsightsMetrics
-	//adding syslogs datatype for enum?
 	Syslog
 )
 
@@ -985,7 +970,6 @@ func PostTelegrafMetricsToLA(telegrafRecords []map[interface{}]interface{}) int 
 			if IsAADMSIAuthMode == true && (strings.HasPrefix(MdsdInsightsMetricsTagName, MdsdOutputStreamIdTagPrefix) == false) {
 				Log("Info::mdsd::obtaining output stream id for InsightsMetricsDataType since Log Analytics AAD MSI Auth Enabled")
 				MdsdInsightsMetricsTagName = extension.GetInstance(FLBLogger, ContainerType).GetOutputStreamId(InsightsMetricsDataType)
-				Log("MdsdInsightsMetricsTagName: %s", MdsdInsightsMetricsTagName) //Sean testing
 			}
 			msgpBytes := convertMsgPackEntriesToMsgpBytes(MdsdInsightsMetricsTagName, msgPackEntries)
 			if MdsdInsightsMetricsMsgpUnixSocketClient == nil {
@@ -1120,28 +1104,23 @@ func UpdateNumTelegrafMetricsSentTelemetry(numMetricsSent int, numSendErrors int
 	ContainerLogTelemetryMutex.Unlock()
 }
 
-// send syslogs to LA as 'Syslog' fixed type (Sean)
+// send syslogs to LA
 func PostSyslogsToLA(syslogRecords []map[interface{}]interface{}) int {
-	var syslogsLA []*SyslogLA2
+	var syslogsLA []*SyslogLA
 
 	Log("Started PostSyslogsToLA new")
 
 	if (syslogRecords == nil) || !(len(syslogRecords) > 0) {
 		Log("PostSyslogsToLA::Error:syslogRecords is empty")
-		//Log("PostTelegrafMetricsToLA::Error:no timeseries to derive")
 		return output.FLB_OK
 	}
 
 	Log("Iterating throught syslogRecords")
 	print_once := true
 	for _, record := range syslogRecords {
-		//translatedMetrics, err := translateTelegrafMetrics(record)
 		mapString := make(map[string]string)
 		for key, value := range record {
 			strKey := fmt.Sprintf("%v", key)
-			//strValue := fmt.Sprintf("%v", value)
-			// Log(strKey)
-			// Log(strValue)
 			mapString[strKey] = ToString(value)
 		}
 		fmt.Printf("%#v", mapString)
@@ -1151,53 +1130,34 @@ func PostSyslogsToLA(syslogRecords []map[interface{}]interface{}) int {
 			print_once = false
 		}
 
-		logEntry := ToString(record["log"])
-		//logEntryTimeStamp := ToString(record["time"])
+		//Go syslog parser
+		// syslog_parser := rfc5424.NewParser()
+		// m, err := syslog_parser.Parse(ToString(record["message"]))
 
-		// syslogLA := SyslogLA{
-		// 	Computer:       Computer,
-		// 	EventTime:      "event_time_placeholder",
-		// 	Facility:	    "facility_placeholder",
-		// 	HostIP:			"host_ip_placeholder",
-		// 	HostName:		"host_name_placeholder",
-		// 	ProcessID:		"1234", //int
-		// 	ProcessName:	"process_name_placeholder",
-		// 	SeverityLevel:	"severity_level_placeholder",
-		// 	SourceSystem:	"source_system_placeholder",
-		// 	SyslogMessage:  logEntry,
-		// 	TimeGenerated:  "time_generated_placeholder",
-		// }
+		host := ToString(record["host"])
+		ident := ToString(record["ident"])
+		message := ToString(record["message"])
+		//Todo further parser message (\w+)\s*=\s*("[^"]*"|'[^']*')  currently doesn't work with escaped quotes \"
+		pid := ToString(record["pid"])
 
-		syslogLA := SyslogLA2{
-			Facility:		"Facility_placeholder",
+		syslogLA := SyslogLA{
+			Computer:       Computer,
+			EventTime:      time.Now().Format(time.RFC3339),
+			Facility:	    "Facility_placeholder",
+			HostIP:			"HostIP_placeholder",
+			Host:			host,
+			ProcessId:		pid,
+			ident:			ident,
 			Severity:		"INFO",
-			EventTime:		time.Now().Format(time.RFC3339),
-			SendingHost:	"SendingHost_placeholder",
-			Msg:			logEntry,
-			SyslogTag:   	"SyslogTag_placeholder",
+			Message: 		message,
+			//TimeGenerated:  "TimeGenerated_placeholder",
 		}
 
 		syslogsLA = append(syslogsLA, &syslogLA)
-
-		// if err != nil {
-		// 	message := fmt.Sprintf("PostTelegrafMetricsToLA::Error:when translating telegraf metric to log analytics metric %q", err)
-		// 	Log(message)
-		// 	//SendException(message) //This will be too noisy
-		// }
-		// laMetrics = append(laMetrics, translatedMetrics...)
 	}
 
 	Log("Finished iterating through syslogsRecords")
 
-	// if (laMetrics == nil) || !(len(laMetrics) > 0) {
-	// 	Log("PostTelegrafMetricsToLA::Info:no metrics derived from timeseries data")
-	// 	return output.FLB_OK
-	// } else {
-	// 	message := fmt.Sprintf("PostTelegrafMetricsToLA::Info:derived %v metrics from %v timeseries", len(laMetrics), len(syslogRecords))
-	// 	Log(message)
-	// }
-
-	//if IsWindows == false { //for linux, mdsd route
 	var msgPackEntries []MsgPackEntry
 	var i int
 	start := time.Now()
@@ -1224,7 +1184,6 @@ func PostSyslogsToLA(syslogRecords []map[interface{}]interface{}) int {
 					strValue := fmt.Sprintf("%v", value)
 					stringMap[strKey] = strValue
 				}
-				//Log("stringMap syslog %#v", stringMap)
 				msgPackEntry := MsgPackEntry{
 					Record: stringMap,
 				}
@@ -1247,474 +1206,31 @@ func PostSyslogsToLA(syslogRecords []map[interface{}]interface{}) int {
 			Log("Error::mdsd::mdsd connection does not exist. re-connecting ...")
 			CreateMDSDClient(Syslog, ContainerType)
 			if MdsdSyslogMsgpUnixSocketClient == nil {
-				Log("Error::mdsd::Unable to create mdsd client for insights metrics. Please check error log.")
-				// ContainerLogTelemetryMutex.Lock()
-				// defer ContainerLogTelemetryMutex.Unlock()
-				// InsightsMetricsMDSDClientCreateErrors += 1
+				Log("Error::mdsd::Unable to create mdsd client for syslog metrics. Please check error log.")
 				return output.FLB_RETRY
 			}
 		}
 
 		deadline := 10 * time.Second
-		MdsdSyslogMsgpUnixSocketClient.SetWriteDeadline(time.Now().Add(deadline)) //this is based of clock time, so cannot reuse
+		MdsdSyslogMsgpUnixSocketClient.SetWriteDeadline(time.Now().Add(deadline))
 		bts, er := MdsdSyslogMsgpUnixSocketClient.Write(msgpBytes)
 
 		elapsed = time.Since(start)
 
 		if er != nil {
 			Log("Error::mdsd::Failed to write to mdsd %d records after %s. Will retry ... error : %s", len(msgPackEntries), elapsed, er.Error())
-			//UpdateNumTelegrafMetricsSentTelemetry(0, 1, 0, 0)
 			if MdsdSyslogMsgpUnixSocketClient != nil {
 				MdsdSyslogMsgpUnixSocketClient.Close()
 				MdsdSyslogMsgpUnixSocketClient = nil
 			}
-
-			// ContainerLogTelemetryMutex.Lock()
-			// defer ContainerLogTelemetryMutex.Unlock()
-			// InsightsMetricsMDSDClientCreateErrors += 1
 			return output.FLB_RETRY
 		} else {
-			// numTelegrafMetricsRecords := len(msgPackEntries)
-			// UpdateNumTelegrafMetricsSentTelemetry(numTelegrafMetricsRecords, 0, 0, 0)
-			//Log("Success::mdsd::Successfully flushed %d telegraf metrics records that was %d bytes to mdsd in %s ", 5, bts, elapsed)
 			numSyslogRecords := len(msgPackEntries)
 			Log("Success::mdsd::Successfully flushed %d syslog records that was %d bytes to mdsd in %s ", numSyslogRecords, bts, elapsed)
 		}
 	}
 	return output.FLB_OK
 }
-
-// func PostSyslogData(tailPluginRecords []map[interface{}]interface{}) int {
-// 	start := time.Now()
-// 	// var dataItemsLAv1 []DataItemLAv1
-// 	// var dataItemsLAv2 []DataItemLAv2
-// 	// var dataItemsADX []DataItemADX
-
-// 	//var syslogsLA []SyslogLA
-
-// 	var msgPackEntries []MsgPackEntry
-// 	var stringMap map[string]string
-// 	var elapsed time.Duration
-
-// 	var maxLatency float64
-// 	var maxLatencyContainer string
-
-// 	imageIDMap := make(map[string]string)
-// 	nameIDMap := make(map[string]string)
-
-// 	DataUpdateMutex.Lock()
-
-// 	for k, v := range ImageIDMap {
-// 		imageIDMap[k] = v
-// 	}
-// 	for k, v := range NameIDMap {
-// 		nameIDMap[k] = v
-// 	}
-// 	DataUpdateMutex.Unlock()
-
-// 	for _, record := range tailPluginRecords {
-// 		//containerID, k8sNamespace, k8sPodName, containerName := GetContainerIDK8sNamespacePodNameFromFileName(ToString(record["filepath"]))
-// 		//logEntrySource := ToString(record["stream"])
-
-// 		// if strings.EqualFold(logEntrySource, "stdout") {
-// 		// 	if containerID == "" || containsKey(StdoutIgnoreNsSet, k8sNamespace) {
-// 		// 		continue
-// 		// 	}
-// 		// } else if strings.EqualFold(logEntrySource, "stderr") {
-// 		// 	if containerID == "" || containsKey(StderrIgnoreNsSet, k8sNamespace) {
-// 		// 		continue
-// 		// 	}
-// 		// }
-
-// 		// stringMap = make(map[string]string)
-// 		// //below id & name are used by latency telemetry in both v1 & v2 LA schemas
-// 		// id := ""
-// 		// name := ""
-
-// 		logEntry := ToString(record["log"])
-// 		logEntryTimeStamp := ToString(record["time"])
-// 		//ADX Schema & LAv2 schema are almost the same (except resourceId)
-// 		// if ContainerLogSchemaV2 == true || ContainerLogsRouteADX == true {
-// 		// 	stringMap["Computer"] = Computer
-// 		// 	stringMap["ContainerId"] = containerID
-// 		// 	stringMap["ContainerName"] = containerName
-// 		// 	stringMap["PodName"] = k8sPodName
-// 		// 	stringMap["PodNamespace"] = k8sNamespace
-// 		// 	stringMap["LogMessage"] = logEntry
-// 		// 	stringMap["LogSource"] = logEntrySource
-// 		// 	stringMap["TimeGenerated"] = logEntryTimeStamp
-// 		// } else {
-// 		// 	stringMap["LogEntry"] = logEntry
-// 		// 	stringMap["LogEntrySource"] = logEntrySource
-// 		// 	stringMap["LogEntryTimeStamp"] = logEntryTimeStamp
-// 		// 	stringMap["SourceSystem"] = "Containers"
-// 		// 	stringMap["Id"] = containerID
-
-// 		// 	if val, ok := imageIDMap[containerID]; ok {
-// 		// 		stringMap["Image"] = val
-// 		// 	}
-
-// 		// 	if val, ok := nameIDMap[containerID]; ok {
-// 		// 		stringMap["Name"] = val
-// 		// 	}
-
-// 		// 	stringMap["TimeOfCommand"] = start.Format(time.RFC3339)
-// 		// 	stringMap["Computer"] = Computer
-// 		// }
-// 		// var dataItemLAv1 DataItemLAv1
-// 		// var dataItemLAv2 DataItemLAv2
-// 		// var dataItemADX DataItemADX
-// 		//var msgPackEntry MsgPackEntry
-
-// 		// syslogLA := SyslogLA{
-// 		// 	Computer:       Computer,
-// 		// 	EventTime:      "event_time_placeholder",
-// 		// 	Facility:	    "facility_placeholder",
-// 		// 	HostIP:			"host_ip_placeholder",
-// 		// 	HostName:		"host_name_placeholder",
-// 		// 	ProcessID:		1234,
-// 		// 	ProcessName:	"process_name_placeholder",
-// 		// 	SeverityLevel:	"severity_level_placeholder",
-// 		// 	SourceSystem:	"source_system_placeholder",
-// 		// 	SyslogMessage:  logEntry,
-// 		// 	TimeGenerated:  logEntryTimeStamp,
-// 		// }
-
-// 		// syslogsLA = append(syslogsLA, syslogLA)
-
-// 		stringMap = make(map[string]string)
-// 		//below id & name are used by latency telemetry in both v1 & v2 LA schemas
-// 		// id := ""
-// 		// name := ""
-
-// 		logEntry := ToString(record["log"])
-// 		logEntryTimeStamp := ToString(record["time"])
-// 		//ADX Schema & LAv2 schema are almost the same (except resourceId)
-
-// 		stringMap["Computer"] = Computer
-// 		stringMap["EventTime"] = "event_time_placeholder"
-// 		stringMap["Facility"] = "facility_placeholder"
-// 		stringMap["HostIP"] = "host_ip_placeholder"
-// 		stringMap["HostName"] = "host_name_placeholder"
-// 		stringMap["ProcessID"] = 1234
-// 		stringMap["ProcessName"] = "process_name_placeholder"
-// 		stringMap["SeverityLevel"] = "severity_level_placeholder"
-// 		stringMap["SourceSystem"] = "source_system_placeholder"
-// 		stringMap["SyslogMessage"] = logEntry
-// 		stringMap["TimeGenerated"] = logEntryTimeStamp
-
-// 		//FlushedRecordsSize += float64(len(stringMap["LogEntry"]))
-
-// 		// if ContainerLogsRouteV2 == true {
-// 		msgPackEntry = MsgPackEntry{
-// 			// this below time is what mdsd uses in its buffer/expiry calculations. better to be as close to flushtime as possible, so its filled just before flushing for each entry
-// 			//Time: start.Unix(),
-// 			//Time: time.Now().Unix(),
-// 			Record: stringMap,
-// 		}
-// 		msgPackEntries = append(msgPackEntries, msgPackEntry)
-// 		// } else if ContainerLogsRouteADX == true {
-// 		// 	if ResourceCentric == true {
-// 		// 		stringMap["AzureResourceId"] = ResourceID
-// 		// 	} else {
-// 		// 		stringMap["AzureResourceId"] = ""
-// 		// 	}
-// 		// 	dataItemADX = DataItemADX{
-// 		// 		TimeGenerated:   stringMap["TimeGenerated"],
-// 		// 		Computer:        stringMap["Computer"],
-// 		// 		ContainerId:     stringMap["ContainerId"],
-// 		// 		ContainerName:   stringMap["ContainerName"],
-// 		// 		PodName:         stringMap["PodName"],
-// 		// 		PodNamespace:    stringMap["PodNamespace"],
-// 		// 		LogMessage:      stringMap["LogMessage"],
-// 		// 		LogSource:       stringMap["LogSource"],
-// 		// 		AzureResourceId: stringMap["AzureResourceId"],
-// 		// 	}
-// 		// 	//ADX
-// 		// 	dataItemsADX = append(dataItemsADX, dataItemADX)
-// 		// } else {
-// 		// 	if ContainerLogSchemaV2 == true {
-// 		// 		dataItemLAv2 = DataItemLAv2{
-// 		// 			TimeGenerated: stringMap["TimeGenerated"],
-// 		// 			Computer:      stringMap["Computer"],
-// 		// 			ContainerId:   stringMap["ContainerId"],
-// 		// 			ContainerName: stringMap["ContainerName"],
-// 		// 			PodName:       stringMap["PodName"],
-// 		// 			PodNamespace:  stringMap["PodNamespace"],
-// 		// 			LogMessage:    stringMap["LogMessage"],
-// 		// 			LogSource:     stringMap["LogSource"],
-// 		// 		}
-// 		// 		//ODS-v2 schema
-// 		// 		dataItemsLAv2 = append(dataItemsLAv2, dataItemLAv2)
-// 		// 		name = stringMap["ContainerName"]
-// 		// 		id = stringMap["ContainerId"]
-// 		// 	} else {
-// 		// 		dataItemLAv1 = DataItemLAv1{
-// 		// 			ID:                    stringMap["Id"],
-// 		// 			LogEntry:              stringMap["LogEntry"],
-// 		// 			LogEntrySource:        stringMap["LogEntrySource"],
-// 		// 			LogEntryTimeStamp:     stringMap["LogEntryTimeStamp"],
-// 		// 			LogEntryTimeOfCommand: stringMap["TimeOfCommand"],
-// 		// 			SourceSystem:          stringMap["SourceSystem"],
-// 		// 			Computer:              stringMap["Computer"],
-// 		// 			Image:                 stringMap["Image"],
-// 		// 			Name:                  stringMap["Name"],
-// 		// 		}
-// 		// 		//ODS-v1 schema
-// 		// 		dataItemsLAv1 = append(dataItemsLAv1, dataItemLAv1)
-// 		// 		name = stringMap["Name"]
-// 		// 		id = stringMap["Id"]
-// 		// 	}
-// 		// }
-
-// 		// if logEntryTimeStamp != "" {
-// 		// 	loggedTime, e := time.Parse(time.RFC3339, logEntryTimeStamp)
-// 		// 	if e != nil {
-// 		// 		message := fmt.Sprintf("Error while converting logEntryTimeStamp for telemetry purposes: %s", e.Error())
-// 		// 		Log(message)
-// 		// 		SendException(message)
-// 		// 	} else {
-// 		// 		ltncy := float64(start.Sub(loggedTime) / time.Millisecond)
-// 		// 		if ltncy >= maxLatency {
-// 		// 			maxLatency = ltncy
-// 		// 			maxLatencyContainer = name + "=" + id
-// 		// 		}
-// 		// 	}
-// 		// } else {
-// 		// 	ContainerLogTelemetryMutex.Lock()
-// 		// 	ContainerLogRecordCountWithEmptyTimeStamp += 1
-// 		// 	ContainerLogTelemetryMutex.Unlock()
-// 		// }
-// 	}
-
-// 	numContainerLogRecords := 0
-
-// 	//if len(msgPackEntries) > 0 && ContainerLogsRouteV2 == true {
-// 	//flush to mdsd
-// 	if IsAADMSIAuthMode == true && strings.HasPrefix(MdsdContainerLogTagName, MdsdOutputStreamIdTagPrefix) == false {
-// 		Log("Info::mdsd::obtaining output stream id")
-// 		// if ContainerLogSchemaV2 == true {
-// 		MdsdContainerLogTagName = extension.GetInstance(FLBLogger, ContainerType).GetOutputStreamId(SyslogDataType)
-// 		// } else {
-// 		// 	MdsdContainerLogTagName = extension.GetInstance(FLBLogger, ContainerType).GetOutputStreamId(ContainerLogDataType)
-// 		// }
-// 		Log("Info::mdsd:: using mdsdsource name: %s", MdsdContainerLogTagName)
-// 	}
-
-// 	fluentForward := MsgPackForward{
-// 		Tag:     MdsdContainerLogTagName,
-// 		Entries: msgPackEntries,
-// 	}
-
-// 	//determine the size of msgp message
-// 	msgpSize := 1 + msgp.StringPrefixSize + len(fluentForward.Tag) + msgp.ArrayHeaderSize
-// 	for i := range fluentForward.Entries {
-// 		msgpSize += 1 + msgp.Int64Size + msgp.GuessSize(fluentForward.Entries[i].Record)
-// 	}
-
-// 	//allocate buffer for msgp message
-// 	var msgpBytes []byte
-// 	msgpBytes = msgp.Require(nil, msgpSize)
-
-// 	//construct the stream
-// 	msgpBytes = append(msgpBytes, 0x92)
-// 	msgpBytes = msgp.AppendString(msgpBytes, fluentForward.Tag)
-// 	msgpBytes = msgp.AppendArrayHeader(msgpBytes, uint32(len(fluentForward.Entries)))
-// 	batchTime := time.Now().Unix()
-// 	for entry := range fluentForward.Entries {
-// 		msgpBytes = append(msgpBytes, 0x92)
-// 		msgpBytes = msgp.AppendInt64(msgpBytes, batchTime)
-// 		msgpBytes = msgp.AppendMapStrStr(msgpBytes, fluentForward.Entries[entry].Record)
-// 	}
-
-// 	if MdsdMsgpUnixSocketClient == nil {
-// 		Log("Error::mdsd::mdsd connection does not exist. re-connecting ...")
-// 		CreateMDSDClient(Syslog, ContainerType)
-// 		if MdsdMsgpUnixSocketClient == nil {
-// 			Log("Error::mdsd::Unable to create mdsd client. Please check error log.")
-
-// 			ContainerLogTelemetryMutex.Lock()
-// 			defer ContainerLogTelemetryMutex.Unlock()
-// 			ContainerLogsMDSDClientCreateErrors += 1
-
-// 			return output.FLB_RETRY
-// 		}
-// 	}
-
-// 	deadline := 10 * time.Second
-// 	MdsdMsgpUnixSocketClient.SetWriteDeadline(time.Now().Add(deadline)) //this is based of clock time, so cannot reuse
-
-// 	bts, er := MdsdMsgpUnixSocketClient.Write(msgpBytes)
-
-// 	elapsed = time.Since(start)
-
-// 	if er != nil {
-// 		Log("Error::mdsd::Failed to write to mdsd %d records after %s. Will retry ... error : %s", len(msgPackEntries), elapsed, er.Error())
-// 		if MdsdMsgpUnixSocketClient != nil {
-// 			MdsdMsgpUnixSocketClient.Close()
-// 			MdsdMsgpUnixSocketClient = nil
-// 		}
-
-// 		ContainerLogTelemetryMutex.Lock()
-// 		defer ContainerLogTelemetryMutex.Unlock()
-// 		ContainerLogsSendErrorsToMDSDFromFluent += 1
-
-// 		return output.FLB_RETRY
-// 	} else {
-// 		numContainerLogRecords = len(msgPackEntries)
-// 		Log("Success::mdsd::Successfully flushed %d container log records that was %d bytes to mdsd in %s ", numContainerLogRecords, bts, elapsed)
-// 	}
-// 	//}
-// 	// } else if ContainerLogsRouteADX == true && len(dataItemsADX) > 0 {
-// 	// 	// Route to ADX
-// 	// 	r, w := io.Pipe()
-// 	// 	defer r.Close()
-// 	// 	enc := json.NewEncoder(w)
-// 	// 	go func() {
-// 	// 		defer w.Close()
-// 	// 		for _, data := range dataItemsADX {
-// 	// 			if encError := enc.Encode(data); encError != nil {
-// 	// 				message := fmt.Sprintf("Error::ADX Encoding data for ADX %s", encError)
-// 	// 				Log(message)
-// 	// 				//SendException(message) //use for testing/debugging only as this can generate a lot of exceptions
-// 	// 				//continue and move on, so one poisoned message does not impact the whole batch
-// 	// 			}
-// 	// 		}
-// 	// 	}()
-
-// 	// 	if ADXIngestor == nil {
-// 	// 		Log("Error::ADX::ADXIngestor does not exist. re-creating ...")
-// 	// 		CreateADXClient()
-// 	// 		if ADXIngestor == nil {
-// 	// 			Log("Error::ADX::Unable to create ADX client. Please check error log.")
-
-// 	// 			ContainerLogTelemetryMutex.Lock()
-// 	// 			defer ContainerLogTelemetryMutex.Unlock()
-// 	// 			ContainerLogsADXClientCreateErrors += 1
-
-// 	// 			return output.FLB_RETRY
-// 	// 		}
-// 	// 	}
-
-// 	// 	// Setup a maximum time for completion to be 30 Seconds.
-// 	// 	ctx, cancel := context.WithTimeout(ParentContext, 30*time.Second)
-// 	// 	defer cancel()
-
-// 	// 	//ADXFlushMutex.Lock()
-// 	// 	//defer ADXFlushMutex.Unlock()
-// 	// 	//MultiJSON support is not there yet
-// 	// 	if _, ingestionErr := ADXIngestor.FromReader(ctx, r, ingest.IngestionMappingRef("ContainerLogV2Mapping", ingest.JSON), ingest.FileFormat(ingest.JSON)); ingestionErr != nil {
-// 	// 		Log("Error when streaming to ADX Ingestion: %s", ingestionErr.Error())
-// 	// 		//ADXIngestor = nil  //not required as per ADX team. Will keep it to indicate that we tried this approach
-
-// 	// 		ContainerLogTelemetryMutex.Lock()
-// 	// 		defer ContainerLogTelemetryMutex.Unlock()
-// 	// 		ContainerLogsSendErrorsToADXFromFluent += 1
-
-// 	// 		return output.FLB_RETRY
-// 	// 	}
-
-// 	// 	elapsed = time.Since(start)
-// 	// 	numContainerLogRecords = len(dataItemsADX)
-// 	// 	Log("Success::ADX::Successfully wrote %d container log records to ADX in %s", numContainerLogRecords, elapsed)
-
-// 	// } else if (ContainerLogSchemaV2 == true && len(dataItemsLAv2) > 0) || len(dataItemsLAv1) > 0 { //ODS
-// 	// 	var logEntry interface{}
-// 	// 	recordType := ""
-// 	// 	loglinesCount := 0
-// 	// 	//schema v2
-// 	// 	if len(dataItemsLAv2) > 0 && ContainerLogSchemaV2 == true {
-// 	// 		logEntry = ContainerLogBlobLAv2{
-// 	// 			DataType:  ContainerLogV2DataType,
-// 	// 			IPName:    IPName,
-// 	// 			DataItems: dataItemsLAv2}
-// 	// 		loglinesCount = len(dataItemsLAv2)
-// 	// 		recordType = "ContainerLogV2"
-// 	// 	} else {
-// 	// 		//schema v1
-// 	// 		if len(dataItemsLAv1) > 0 {
-// 	// 			logEntry = ContainerLogBlobLAv1{
-// 	// 				DataType:  ContainerLogDataType,
-// 	// 				IPName:    IPName,
-// 	// 				DataItems: dataItemsLAv1}
-// 	// 			loglinesCount = len(dataItemsLAv1)
-// 	// 			recordType = "ContainerLog"
-// 	// 		}
-// 	// 	}
-
-// 	// 	marshalled, err := json.Marshal(logEntry)
-// 	// 	//Log("LogEntry::e %s", marshalled)
-// 	// 	if err != nil {
-// 	// 		message := fmt.Sprintf("Error while Marshalling log Entry: %s", err.Error())
-// 	// 		Log(message)
-// 	// 		SendException(message)
-// 	// 		return output.FLB_OK
-// 	// 	}
-
-// 	// 	req, _ := http.NewRequest("POST", OMSEndpoint, bytes.NewBuffer(marshalled))
-// 	// 	req.Header.Set("Content-Type", "application/json")
-// 	// 	req.Header.Set("User-Agent", userAgent)
-// 	// 	reqId := uuid.New().String()
-// 	// 	req.Header.Set("X-Request-ID", reqId)
-// 	// 	//expensive to do string len for every request, so use a flag
-// 	// 	if ResourceCentric == true {
-// 	// 		req.Header.Set("x-ms-AzureResourceId", ResourceID)
-// 	// 	}
-
-// 	// 	if IsAADMSIAuthMode == true {
-// 	// 		IngestionAuthTokenUpdateMutex.Lock()
-// 	// 		ingestionAuthToken := ODSIngestionAuthToken
-// 	// 		IngestionAuthTokenUpdateMutex.Unlock()
-// 	// 		if ingestionAuthToken == "" {
-// 	// 			Log("Error::ODS Ingestion Auth Token is empty. Please check error log.")
-// 	// 			return output.FLB_RETRY
-// 	// 		}
-// 	// 		// add authorization header to the req
-// 	// 		req.Header.Set("Authorization", "Bearer "+ingestionAuthToken)
-// 	// 	}
-
-// 	// 	resp, err := HTTPClient.Do(req)
-// 	// 	elapsed = time.Since(start)
-
-// 	// 	if err != nil {
-// 	// 		message := fmt.Sprintf("Error when sending request %s \n", err.Error())
-// 	// 		Log(message)
-// 	// 		// Commenting this out for now. TODO - Add better telemetry for ods errors using aggregation
-// 	// 		//SendException(message)
-
-// 	// 		Log("Failed to flush %d records after %s", loglinesCount, elapsed)
-
-// 	// 		return output.FLB_RETRY
-// 	// 	}
-
-// 	// 	if resp == nil || resp.StatusCode != 200 {
-// 	// 		if resp != nil {
-// 	// 			Log("RequestId %s Status %s Status Code %d", reqId, resp.Status, resp.StatusCode)
-// 	// 		}
-// 	// 		return output.FLB_RETRY
-// 	// 	}
-
-// 	// 	defer resp.Body.Close()
-// 	// 	numContainerLogRecords = loglinesCount
-// 	// 	Log("PostDataHelper::Info::Successfully flushed %d %s records to ODS in %s", numContainerLogRecords, recordType, elapsed)
-
-// 	// }
-
-// 	ContainerLogTelemetryMutex.Lock()
-// 	defer ContainerLogTelemetryMutex.Unlock()
-
-// 	if numContainerLogRecords > 0 {
-// 		FlushedRecordsCount += float64(numContainerLogRecords)
-// 		FlushedRecordsTimeTaken += float64(elapsed / time.Millisecond)
-
-// 		if maxLatency >= AgentLogProcessingMaxLatencyMs {
-// 			AgentLogProcessingMaxLatencyMs = maxLatency
-// 			AgentLogProcessingMaxLatencyMsContainer = maxLatencyContainer
-// 		}
-// 	}
-
-// 	return output.FLB_OK
-// }
 
 // PostDataHelper sends data to the ODS endpoint or oneagent or ADX
 func PostDataHelper(tailPluginRecords []map[interface{}]interface{}) int {

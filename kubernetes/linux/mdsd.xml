@@ -206,26 +206,18 @@
       <Column name="TimeGenerated" type="str" mdstype="mt:wstr" />
       <Column name="CounterValue" type="str" mdstype="mt:wstr" />
     </Schema>
-    <!-- <Schema name="SyslogSchema">
+    <Schema name="SyslogSchema">
       <Column name="Computer" type="str" mdstype="mt:wstr" />
-      <Column name="EventTime" type="str" mdstype="mt:wstr" />
+      <Column name="EventTime" type="str-rfc3339" mdstype="mt:utc" />
       <Column name="Facility" type="str" mdstype="mt:wstr" />
       <Column name="HostIP" type="str" mdstype="mt:wstr" />
-      <Column name="HostName" type="str" mdstype="mt:wstr" />
-      <Column name="ProcessID" type="str" mdstype="mt:wstr" />
-      <Column name="ProcessName" type="str" mdstype="mt:wstr" />
-      <Column name="SeverityLevel" type="str" mdstype="mt:wstr" />
-      <Column name="SourceSystem" type="str" mdstype="mt:wstr" />
-      <Column name="SyslogMessage" type="str" mdstype="mt:wstr" />
-      <Column name="TimeGenerated" type="str" mdstype="mt:wstr" />
-    </Schema> -->
-    <Schema name="SyslogSchema">
-      <Column name="Facility" type="str" mdstype="mt:wstr" />
+      <Column name="Host" type="str" mdstype="mt:wstr" />
+      <Column name="ProcessId" type="str" mdstype="mt:wstr" />
+      <Column name="ident" type="str" mdstype="mt:wstr" />
       <Column name="Severity" type="str" mdstype="mt:int32" />
-      <Column name="EventTime" type="str-rfc3339" mdstype="mt:utc" />
-      <Column name="SendingHost" type="str" mdstype="mt:wstr" />
-      <Column name="Msg" type="str" mdstype="mt:wstr" />
-      <Column name="SyslogTag" type="str" mdstype="mt:wstr" />
+      <!-- <Column name="SourceSystem" type="str" mdstype="mt:wstr" /> -->
+      <Column name="Message" type="str" mdstype="mt:wstr" />
+      <!-- <Column name="TimeGenerated" type="str" mdstype="mt:wstr" /> -->
     </Schema>
   </Schemas>
 

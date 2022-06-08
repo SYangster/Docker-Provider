@@ -17,3 +17,6 @@ CVE-2021-28965
 
 #dpkg vulnerability in ubuntu
 CVE-2022-1664
+
+#ubuntu e2fsprogs
+CVE-2022-1304
