@@ -12,6 +12,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -134,7 +135,7 @@ var (
 	// Client for MDSD msgp Unix socket for Insights Metrics
 	MdsdInsightsMetricsMsgpUnixSocketClient net.Conn
 	// NEW Client for MDSD msgp Unix socket for Syslog
-	MdsdSyslogMsgpUnixSocketClient net.Conn
+	MdsdSyslogMsgpUnixSocketClient net.UnixConn
 	// Ingestor for ADX
 	ADXIngestor *ingest.Ingestion
 	// OMSEndpoint ingestion endpoint
@@ -1105,128 +1106,175 @@ func UpdateNumTelegrafMetricsSentTelemetry(numMetricsSent int, numSendErrors int
 }
 
 // send syslogs to LA
-func PostSyslogsToLA(syslogRecords []map[interface{}]interface{}) int {
-	var syslogsLA []*SyslogLA
+// func PostSyslogsToLA(syslogRecords []map[interface{}]interface{}) int {
+// 	var syslogsLA []*SyslogLA
 
-	Log("Started PostSyslogsToLA new")
+// 	Log("Started PostSyslogsToLA new")
 
-	if (syslogRecords == nil) || !(len(syslogRecords) > 0) {
-		Log("PostSyslogsToLA::Error:syslogRecords is empty")
-		return output.FLB_OK
-	}
+// 	if (syslogRecords == nil) || !(len(syslogRecords) > 0) {
+// 		Log("PostSyslogsToLA::Error:syslogRecords is empty")
+// 		return output.FLB_OK
+// 	}
+
+// 	Log("Iterating throught syslogRecords")
+// 	print_once := true
+// 	for _, record := range syslogRecords {
+// 		mapString := make(map[string]string)
+// 		for key, value := range record {
+// 			strKey := fmt.Sprintf("%v", key)
+// 			mapString[strKey] = ToString(value)
+// 		}
+// 		fmt.Printf("%#v", mapString)
+
+// 		if print_once {
+// 			Log("Syslog record %#v", mapString)
+// 			print_once = false
+// 		}
+
+// 		//Go syslog parser
+// 		// syslog_parser := rfc5424.NewParser()
+// 		// m, err := syslog_parser.Parse(ToString(record["message"]))
+
+// 		host := ToString(record["host"])
+// 		ident := ToString(record["ident"])
+// 		message := ToString(record["message"])
+// 		//Todo further parser message (\w+)\s*=\s*("[^"]*"|'[^']*')  currently doesn't work with escaped quotes \"
+// 		pid := ToString(record["pid"])
+
+// 		syslogLA := SyslogLA{
+// 			Computer:       Computer,
+// 			EventTime:      time.Now().Format(time.RFC3339),
+// 			Facility:	    "Facility_placeholder",
+// 			HostIP:			"HostIP_placeholder",
+// 			Host:			host,
+// 			ProcessId:		pid,
+// 			ident:			ident,
+// 			Severity:		"INFO",
+// 			Message: 		message,
+// 			//TimeGenerated:  "TimeGenerated_placeholder",
+// 		}
+
+// 		syslogsLA = append(syslogsLA, &syslogLA)
+// 	}
+
+// 	Log("Finished iterating through syslogsRecords")
+
+// 	var msgPackEntries []MsgPackEntry
+// 	var i int
+// 	start := time.Now()
+// 	var elapsed time.Duration
+
+// 	for i = 0; i < len(syslogsLA); i++ {
+// 		var interfaceMap map[string]interface{}
+// 		stringMap := make(map[string]string)
+// 		jsonBytes, err := json.Marshal(*syslogsLA[i])
+// 		if err != nil {
+// 			message := fmt.Sprintf("PostSyslogsToLA::Error:when marshalling json %q", err)
+// 			Log(message)
+// 			SendException(message)
+// 			return output.FLB_OK
+// 		} else {
+// 			if err := json.Unmarshal(jsonBytes, &interfaceMap); err != nil {
+// 				message := fmt.Sprintf("Error while UnMarshalling json bytes to interfaceMap: %s", err.Error())
+// 				Log(message)
+// 				SendException(message)
+// 				return output.FLB_OK
+// 			} else {
+// 				for key, value := range interfaceMap {
+// 					strKey := fmt.Sprintf("%v", key)
+// 					strValue := fmt.Sprintf("%v", value)
+// 					stringMap[strKey] = strValue
+// 				}
+// 				msgPackEntry := MsgPackEntry{
+// 					Record: stringMap,
+// 				}
+// 				msgPackEntries = append(msgPackEntries, msgPackEntry)
+// 			}
+// 		}
+// 	}
+// 	if len(msgPackEntries) > 0 {
+
+// 		Log("Syslog msgPackEntries is > 0!")
+// 		Log("msgpackentries syslog %#v", msgPackEntries)
+// 		// if IsAADMSIAuthMode == true && (strings.HasPrefix(MdsdSyslogTagName, MdsdOutputStreamIdTagPrefix) == false) {
+// 		// 	Log("Info::mdsd::obtaining output stream id for InsightsMetricsDataType since Log Analytics AAD MSI Auth Enabled")
+// 		// 	MdsdSyslogTagName = extension.GetInstance(FLBLogger, ContainerType).GetOutputStreamId(SyslogDataType)
+// 		// 	Log("")
+// 		// }
+// 		MdsdSyslogTagName = "SyslogSource"
+// 		msgpBytes := convertMsgPackEntriesToMsgpBytes(MdsdSyslogTagName, msgPackEntries)
+// 		if MdsdSyslogMsgpUnixSocketClient == nil {
+// 			Log("Error::mdsd::mdsd connection does not exist. re-connecting ...")
+// 			CreateMDSDClient(Syslog, ContainerType)
+// 			if MdsdSyslogMsgpUnixSocketClient == nil {
+// 				Log("Error::mdsd::Unable to create mdsd client for syslog metrics. Please check error log.")
+// 				return output.FLB_RETRY
+// 			}
+// 		}
+
+// 		deadline := 10 * time.Second
+// 		MdsdSyslogMsgpUnixSocketClient.SetWriteDeadline(time.Now().Add(deadline))
+// 		bts, er := MdsdSyslogMsgpUnixSocketClient.Write(msgpBytes)
+
+// 		elapsed = time.Since(start)
+
+// 		if er != nil {
+// 			Log("Error::mdsd::Failed to write to mdsd %d records after %s. Will retry ... error : %s", len(msgPackEntries), elapsed, er.Error())
+// 			if MdsdSyslogMsgpUnixSocketClient != nil {
+// 				MdsdSyslogMsgpUnixSocketClient.Close()
+// 				MdsdSyslogMsgpUnixSocketClient = nil
+// 			}
+// 			return output.FLB_RETRY
+// 		} else {
+// 			numSyslogRecords := len(msgPackEntries)
+// 			Log("Success::mdsd::Successfully flushed %d syslog records that was %d bytes to mdsd in %s ", numSyslogRecords, bts, elapsed)
+// 		}
+// 	}
+// 	return output.FLB_OK
+// }
+
+//func PostSyslogsToLA_DCRMSI(syslogRecords []map[interface{}]interface{}) int {
+func PostSyslogsToLA_DCRMSI(syslogRecords []map[interface{}]interface{}, syslogBytes []byte) int {
+	Log("Started PostSyslogsToLA_DRCMSI")
+	Log("Length of syslogBytes is %d bytes", len(syslogBytes))
 
 	Log("Iterating throught syslogRecords")
-	print_once := true
 	for _, record := range syslogRecords {
-		mapString := make(map[string]string)
-		for key, value := range record {
-			strKey := fmt.Sprintf("%v", key)
-			mapString[strKey] = ToString(value)
-		}
-		fmt.Printf("%#v", mapString)
+		record_log := "<28>" + ToString(record["log"])
+		Log("record: %s", record_log)
 
-		if print_once {
-			Log("Syslog record %#v", mapString)
-			print_once = false
-		}
+		start := time.Now()
+		var elapsed time.Duration
 
-		//Go syslog parser
-		// syslog_parser := rfc5424.NewParser()
-		// m, err := syslog_parser.Parse(ToString(record["message"]))
-
-		host := ToString(record["host"])
-		ident := ToString(record["ident"])
-		message := ToString(record["message"])
-		//Todo further parser message (\w+)\s*=\s*("[^"]*"|'[^']*')  currently doesn't work with escaped quotes \"
-		pid := ToString(record["pid"])
-
-		syslogLA := SyslogLA{
-			Computer:       Computer,
-			EventTime:      time.Now().Format(time.RFC3339),
-			Facility:	    "Facility_placeholder",
-			HostIP:			"HostIP_placeholder",
-			Host:			host,
-			ProcessId:		pid,
-			ident:			ident,
-			Severity:		"INFO",
-			Message: 		message,
-			//TimeGenerated:  "TimeGenerated_placeholder",
-		}
-
-		syslogsLA = append(syslogsLA, &syslogLA)
-	}
-
-	Log("Finished iterating through syslogsRecords")
-
-	var msgPackEntries []MsgPackEntry
-	var i int
-	start := time.Now()
-	var elapsed time.Duration
-
-	for i = 0; i < len(syslogsLA); i++ {
-		var interfaceMap map[string]interface{}
-		stringMap := make(map[string]string)
-		jsonBytes, err := json.Marshal(*syslogsLA[i])
-		if err != nil {
-			message := fmt.Sprintf("PostSyslogsToLA::Error:when marshalling json %q", err)
-			Log(message)
-			SendException(message)
-			return output.FLB_OK
-		} else {
-			if err := json.Unmarshal(jsonBytes, &interfaceMap); err != nil {
-				message := fmt.Sprintf("Error while UnMarshalling json bytes to interfaceMap: %s", err.Error())
-				Log(message)
-				SendException(message)
-				return output.FLB_OK
-			} else {
-				for key, value := range interfaceMap {
-					strKey := fmt.Sprintf("%v", key)
-					strValue := fmt.Sprintf("%v", value)
-					stringMap[strKey] = strValue
-				}
-				msgPackEntry := MsgPackEntry{
-					Record: stringMap,
-				}
-				msgPackEntries = append(msgPackEntries, msgPackEntry)
-			}
-		}
-	}
-	if len(msgPackEntries) > 0 {
-
-		Log("Syslog msgPackEntries is > 0!")
-		Log("msgpackentries syslog %#v", msgPackEntries)
-		// if IsAADMSIAuthMode == true && (strings.HasPrefix(MdsdSyslogTagName, MdsdOutputStreamIdTagPrefix) == false) {
-		// 	Log("Info::mdsd::obtaining output stream id for InsightsMetricsDataType since Log Analytics AAD MSI Auth Enabled")
-		// 	MdsdSyslogTagName = extension.GetInstance(FLBLogger, ContainerType).GetOutputStreamId(SyslogDataType)
-		// 	Log("")
-		// }
-		MdsdSyslogTagName = "SyslogSource"
-		msgpBytes := convertMsgPackEntriesToMsgpBytes(MdsdSyslogTagName, msgPackEntries)
-		if MdsdSyslogMsgpUnixSocketClient == nil {
+		//if MdsdSyslogMsgpUnixSocketClient == nil {
+		if reflect.ValueOf(MdsdSyslogMsgpUnixSocketClient).IsZero() {
 			Log("Error::mdsd::mdsd connection does not exist. re-connecting ...")
 			CreateMDSDClient(Syslog, ContainerType)
-			if MdsdSyslogMsgpUnixSocketClient == nil {
+			//if MdsdSyslogMsgpUnixSocketClient == nil {
+			if reflect.ValueOf(MdsdSyslogMsgpUnixSocketClient).IsZero() {
 				Log("Error::mdsd::Unable to create mdsd client for syslog metrics. Please check error log.")
 				return output.FLB_RETRY
 			}
 		}
 
 		deadline := 10 * time.Second
+		//MdsdSyslogMsgpUnixSocketClient.Close()
 		MdsdSyslogMsgpUnixSocketClient.SetWriteDeadline(time.Now().Add(deadline))
-		bts, er := MdsdSyslogMsgpUnixSocketClient.Write(msgpBytes)
+		bts, er := MdsdSyslogMsgpUnixSocketClient.Write([]byte(record_log))
 
 		elapsed = time.Since(start)
 
 		if er != nil {
-			Log("Error::mdsd::Failed to write to mdsd %d records after %s. Will retry ... error : %s", len(msgPackEntries), elapsed, er.Error())
-			if MdsdSyslogMsgpUnixSocketClient != nil {
+			Log("Error::mdsd::Failed to write to mdsd X records after %s. Will retry ... error : %s", elapsed, er.Error())
+			//if MdsdSyslogMsgpUnixSocketClient != nil {
+			if reflect.ValueOf(MdsdSyslogMsgpUnixSocketClient).IsZero() {
 				MdsdSyslogMsgpUnixSocketClient.Close()
-				MdsdSyslogMsgpUnixSocketClient = nil
+				MdsdSyslogMsgpUnixSocketClient = net.UnixConn{}
 			}
 			return output.FLB_RETRY
 		} else {
-			numSyslogRecords := len(msgPackEntries)
-			Log("Success::mdsd::Successfully flushed %d syslog records that was %d bytes to mdsd in %s ", numSyslogRecords, bts, elapsed)
+			//numSyslogRecords := len(msgPackEntries)
+			Log("Success::mdsd::Successfully flushed syslog record that was %d bytes to mdsd in %s ", bts, elapsed)
 		}
 	}
 	return output.FLB_OK
