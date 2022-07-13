@@ -185,12 +185,7 @@ func CreateMDSDClient(dataType DataType, containerType string) {
 		mdsdSyslogSocket := "/var/run/mdsd/default_syslog.socket"
 		// conn, err := net.DialTimeout("unixgram",
 		// 	mdsdSyslogSocket, 10*time.Second)
-
-		//net.ResolveUnixAddr("unixgram", mdsdSyslogSocket)
-
-		//conn, err := net.DialUnix("unixgram", &net.UnixAddr{Name: mdsdSyslogSocket, Net: "unixgram"}, &net.UnixAddr{Name: mdsdSyslogSocket, Net: "unixgram"})
 		conn, err := net.DialUnix("unixgram", nil, &net.UnixAddr{Name: mdsdSyslogSocket, Net: "unixgram"})
-		//conn, err := net.ListenUnixgram("unixgram", nil)
 		if err != nil {
 			Log("Error::mdsd::Unable to open MDSD msgp socket connection for Syslog %s", err.Error())
 		} else {

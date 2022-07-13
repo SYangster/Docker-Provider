@@ -1240,7 +1240,8 @@ func PostSyslogsToLA_DCRMSI(syslogRecords []map[interface{}]interface{}, syslogB
 
 	Log("Iterating throught syslogRecords")
 	for _, record := range syslogRecords {
-		record_log := "<28>" + ToString(record["log"])
+		//record_log := "<28>" + ToString(record["log"])
+		record_log := ToString(record["log"])
 		Log("record: %s", record_log)
 
 		start := time.Now()
@@ -1273,7 +1274,6 @@ func PostSyslogsToLA_DCRMSI(syslogRecords []map[interface{}]interface{}, syslogB
 			}
 			return output.FLB_RETRY
 		} else {
-			//numSyslogRecords := len(msgPackEntries)
 			Log("Success::mdsd::Successfully flushed syslog record that was %d bytes to mdsd in %s ", bts, elapsed)
 		}
 	}
@@ -1308,15 +1308,18 @@ func PostDataHelper(tailPluginRecords []map[interface{}]interface{}) int {
 	DataUpdateMutex.Unlock()
 
 	for _, record := range tailPluginRecords {
+		Log("Iterating through tailPluginRecords")
 		containerID, k8sNamespace, k8sPodName, containerName := GetContainerIDK8sNamespacePodNameFromFileName(ToString(record["filepath"]))
 		logEntrySource := ToString(record["stream"])
 
 		if strings.EqualFold(logEntrySource, "stdout") {
 			if containerID == "" || containsKey(StdoutIgnoreNsSet, k8sNamespace) {
+				Log("stdout tailPluginRecords")
 				continue
 			}
 		} else if strings.EqualFold(logEntrySource, "stderr") {
 			if containerID == "" || containsKey(StderrIgnoreNsSet, k8sNamespace) {
+				Log("stderr tailPluginRecords")
 				continue
 			}
 		}
@@ -1363,7 +1366,10 @@ func PostDataHelper(tailPluginRecords []map[interface{}]interface{}) int {
 
 		FlushedRecordsSize += float64(len(stringMap["LogEntry"]))
 
+		Log("before ContainerLogsRouteV2 if %t", ContainerLogsRouteV2)
+
 		if ContainerLogsRouteV2 == true {
+			Log("ContainerLogsRouteV2 is true")
 			msgPackEntry = MsgPackEntry{
 				// this below time is what mdsd uses in its buffer/expiry calculations. better to be as close to flushtime as possible, so its filled just before flushing for each entry
 				//Time: start.Unix(),
@@ -1371,6 +1377,8 @@ func PostDataHelper(tailPluginRecords []map[interface{}]interface{}) int {
 				Record: stringMap,
 			}
 			msgPackEntries = append(msgPackEntries, msgPackEntry)
+			Log("stringmap: %s", fmt.Sprintf("%s", stringMap))
+			//Log(stringMap)
 		} else if ContainerLogsRouteADX == true {
 			if ResourceCentric == true {
 				stringMap["AzureResourceId"] = ResourceID
@@ -1446,8 +1454,9 @@ func PostDataHelper(tailPluginRecords []map[interface{}]interface{}) int {
 	}
 
 	numContainerLogRecords := 0
-
+	Log("Starting PostDataHelper")
 	if len(msgPackEntries) > 0 && ContainerLogsRouteV2 == true {
+		Log("ContainerLogs route")
 		//flush to mdsd
 		if IsAADMSIAuthMode == true && strings.HasPrefix(MdsdContainerLogTagName, MdsdOutputStreamIdTagPrefix) == false {
 			Log("Info::mdsd::obtaining output stream id")
